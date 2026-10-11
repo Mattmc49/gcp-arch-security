@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCP Architecture Security Reviewer</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1b2330;
+    --panel-light: #232d3d;
+    --border: #2d3a4d;
+    --text: #e4e9f0;
+    --text-dim: #8b9cb3;
+    --accent: #4285F4;
+    --green: #34A853;
+    --yellow: #FBBC05;
+    --red: #EA4335;
+    --high: #ea4335;
+    --medium: #fbbc05;
+    --low: #5b8def;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; height: 52px; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .topbar h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+  .topbar h1 span { color: var(--accent); }
+  .actions { display: flex; gap: 8px; }
+
+  button { background: var(--panel-light); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; font-weight: 500; }
+  button:hover { background: #2a3650; border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  button.primary:hover { background: #5a95f5; }
+  button.danger { background: transparent; border-color: var(--red); color: var(--red); }
+  button.danger:hover { background: rgba(234,67,53,0.15); }
+  button.small { padding: 4px 8px; font-size: 11.5px; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .main { display: flex; flex: 1; min-height: 0; }
+
+  .palette { width: 200px; background: var(--panel); border-right: 1px solid var(--border); padding: 14px 12px; overflow-y: auto; flex-shrink: 0; }
+  .palette h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-dim); margin: 14px 0 8px; }
+  .palette h2:first-child { margin-top: 0; }
+  .palette-btn { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; margin-bottom: 6px; padding: 8px 10px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  .canvas-wrap { flex: 1; position: relative; background: #0b0f14; background-image: radial-gradient(circle, #1a222e 1px, transparent 1px); background-size: 22px 22px; overflow: auto; }
+  #diagram { width: 100%; height: 100%; min-width: 900px; min-height: 700px; display: block; }
+
+  .node-box { cursor: grab; }
+  .node-box.dragging { cursor: grabbing; }
+  .node-rect { fill: var(--panel-light); stroke-width: 2; rx: 10; }
+  .node-rect.selected { stroke: #ffffff !important; stroke-width: 3; }
+  .node-badge { fill: var(--panel-light); stroke: #000; stroke-width: 2; font-size: 10px; font-weight: 700; }
+  .node-label { fill: var(--text); font-size: 12px; font-weight: 600; pointer-events: none; }
+  .node-sublabel { fill: var(--text-dim); font-size: 9.5px; pointer-events: none; }
+  .sev-dot { stroke: #0b0f14; stroke-width: 2; }
+  .sev-count { fill: white; font-size: 9px; font-weight: 700; pointer-events: none; text-anchor: middle; }
+  .edge-line { stroke: #45566f; stroke-width: 1.6; fill: none; }
+  .internet-node rect { fill: #11161d; stroke: #45566f; stroke-dasharray: 4 3; }
+
+  .canvas-toolbar { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 6px; background: var(--panel); padding: 6px; border-radius: 8px; border: 1px solid var(--border); }
+  .canvas-toolbar button.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .hint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--accent); color: white; padding: 6px 14px; border-radius: 20px; font-size: 12px; z-index: 5; }
+
+  .inspector { width: 380px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab { flex: 1; text-align: center; padding: 10px 4px; font-size: 11.5px; cursor: pointer; color: var(--text-dim); border-bottom: 2px solid transparent; font-weight: 600; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab .count { display: inline-block; background: var(--red); color: white; border-radius: 9px; font-size: 10px; padding: 0 5px; margin-left: 3px; }
+  .tab-content { flex: 1; overflow-y: auto; padding: 14px; }
+
+  .field { margin-bottom: 12px; }
+  .field label { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--text-dim); margin-bottom: 4px; gap: 8px; }
+  .field input[type="text"], .field select { width: 100%; background: var(--panel-light); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 6px; font-size: 12.5px; }
+  .field.bool label { margin-bottom: 0; cursor: pointer; }
+  .field.bool { display: flex; align-items: center; justify-content: space-between; background: var(--panel-light); padding: 8px 10px; border-radius: 6px; }
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; inset: 0; background: #3b4a5f; border-radius: 20px; transition: .15s; cursor: pointer; }
+  .toggle .slider:before { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: .15s; }
+  .toggle input:checked + .slider { background: var(--green); }
+  .toggle input:checked + .slider:before { transform: translateX(16px); }
+
+  .section-title { font-size: 13px; font-weight: 700; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
+  .empty-state { color: var(--text-dim); font-size: 12.5px; text-align: center; padding: 30px 10px; line-height: 1.6; }
+
+  .list-item { background: var(--panel-light); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .list-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .list-item-head strong { font-size: 12.5px; }
+
+  .finding { border-left: 3px solid var(--low); background: var(--panel-light); border-radius: 0 8px 8px 0; padding: 10px 12px; margin-bottom: 10px; }
+  .finding.High { border-left-color: var(--high); }
+  .finding.Medium { border-left-color: var(--medium); }
+  .finding.Low { border-left-color: var(--low); }
+  .finding-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .sev-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; color: #0b0f14; text-transform: uppercase; }
+  .sev-pill.High { background: var(--high); color: white; }
+  .sev-pill.Medium { background: var(--medium); }
+  .sev-pill.Low { background: var(--low); color: white; }
+  .finding-title { font-size: 12.5px; font-weight: 700; }
+  .finding-desc { font-size: 12px; color: var(--text-dim); margin: 4px 0; line-height: 1.45; }
+  .finding-remediation { font-size: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
+  .finding-remediation b { color: var(--green); }
+  .finding-link { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 11.5px; }
+
+  .summary-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .summary-chip { flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; background: var(--panel-light); }
+  .summary-chip .n { font-size: 18px; font-weight: 800; display: block; }
+  .summary-chip.High .n { color: var(--high); }
+  .summary-chip.Medium .n { color: var(--medium); }
+  .summary-chip.Low .n { color: var(--low); }
+  .summary-chip .l { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+
+  .flash { animation: flashPulse 1s ease-in-out 2; }
+  @keyframes flashPulse { 0%,100% { filter: none; } 50% { filter: drop-shadow(0 0 8px #fff); } }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #334154; border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>GCP <span>Architecture Security</span> Reviewer</h1>
+    <div class="actions">
+      <button id="btnSample">Load Sample</button>
+      <button id="btnClear">Clear All</button>
+      <button id="btnExport">Export SVG</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="palette">
+      <h2>Compute &amp; Serverless</h2>
+      <button class="palette-btn" data-type="vm"><span class="swatch" style="background:#4285F4"></span>Compute VM</button>
+      <button class="palette-btn" data-type="gke"><span class="swatch" style="background:#34A853"></span>GKE Cluster</button>
+      <button class="palette-btn" data-type="function"><span class="swatch" style="background:#34A853"></span>Cloud Function</button>
+
+      <h2>Data &amp; Network</h2>
+      <button class="palette-btn" data-type="bucket"><span class="swatch" style="background:#FBBC05"></span>Storage Bucket</button>
+      <button class="palette-btn" data-type="sql"><span class="swatch" style="background:#EA4335"></span>Cloud SQL</button>
+      <button class="palette-btn" data-type="lb"><span class="swatch" style="background:#4285F4"></span>Load Balancer</button>
+
+      <h2>Security Config</h2>
+      <button class="palette-btn" id="addFirewall"><span class="swatch" style="background:#8b9cb3"></span>Firewall Rule</button>
+      <button class="palette-btn" id="addIam"><span class="swatch" style="background:#8b9cb3"></span>IAM Binding</button>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div class="canvas-toolbar">
+        <button id="btnConnect">🔗 Connect Mode</button>
+      </div>
+      <svg id="diagram"></svg>
+      <div class="hint" id="connectHint" style="display:none">Click a target node to connect &middot; Esc to cancel</div>
+    </section>
+
+    <aside class="inspector">
+      <div class="tabs">
+        <div class="tab active" data-tab="properties">Properties</div>
+        <div class="tab" data-tab="firewall">Firewall</div>
+        <div class="tab" data-tab="iam">IAM</div>
+        <div class="tab" data-tab="findings">Findings<span class="count" id="findingsCountTab"></span></div>
+      </div>
+      <div class="tab-content" id="tabContent"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const RESOURCE_TYPES = {
+    vm: { label: "Compute Engine VM", abbr: "VM", color: "#4285F4", fields: [
+      { key: "publicIp", label: "Has external/public IP", type: "bool", default: false },
+      { key: "osLogin", label: "OS Login enabled", type: "bool", default: true },
+      { key: "saRole", label: "Attached service account role", type: "select", options: ["custom minimal role", "roles/editor (broad)", "roles/owner (broad)"], default: "custom minimal role" },
+      { key: "diskEncryption", label: "Disk encryption", type: "select", options: ["Google-managed key", "Customer-managed key (CMEK)"], default: "Google-managed key" }
+    ]},
+    gke: { label: "GKE Cluster", abbr: "GKE", color: "#34A853", fields: [
+      { key: "private", label: "Private cluster", type: "bool", default: true },
+      { key: "networkPolicy", label: "Network policy enabled", type: "bool", default: true },
+      { key: "masterAuthRestricted", label: "Master authorized networks restricted", type: "bool", default: true },
+      { key: "workloadIdentity", label: "Workload Identity enabled", type: "bool", default: true }
+    ]},
+    bucket: { label: "Cloud Storage Bucket", abbr: "GCS", color: "#FBBC05", fields: [
+      { key: "publicAccess", label: "Public (allUsers/allAuthenticatedUsers)", type: "bool", default: false },
+      { key: "uniformAccess", label: "Uniform bucket-level access", type: "bool", default: true },
+      { key: "cmek", label: "Customer-managed encryption (CMEK)", type: "bool", default: false },
+      { key: "versioning", label: "Object versioning enabled", type: "bool", default: true }
+    ]},
+    sql: { label: "Cloud SQL Instance", abbr: "SQL", color: "#EA4335", fields: [
+      { key: "publicIp", label: "Public IP enabled", type: "bool", default: false },
+      { key: "sslRequired", label: "Require SSL/TLS connections", type: "bool", default: true },
+      { key: "openAuthNetworks", label: "Authorized networks include 0.0.0.0/0", type: "bool", default: false },
+      { key: "backups", label: "Automated backups enabled", type: "bool", default: true }
+    ]},
+    lb: { label: "Cloud Load Balancer", abbr: "LB", color: "#4285F4", fields: [
+      { key: "cloudArmor", label: "Cloud Armor (WAF) enabled", type: "bool", default: false },
+      { key: "sslPolicy", label: "SSL policy", type: "select", options: ["Modern (TLS 1.2+)", "Compatible (TLS 1.0+)", "Legacy (TLS 1.0, weak ciphers)"], default: "Modern (TLS 1.2+)" }
+    ]},
+    function: { label: "Cloud Function", abbr: "FN", color: "#34A853", fields: [
+      { key: "allowUnauthenticated", label: "Allow unauthenticated invocations", type: "bool", default: false },
+      { key: "vpcConnector", label: "VPC connector configured", type: "bool", default: false }
+    ]}
+  };
+
+  const SEV_COLOR = { High: "var(--high)", Medium: "var(--medium)", Low: "var(--low)" };
+  const SEV_ORDER = { High: 0, Medium: 1, Low: 2 };
+
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+  function defaultProps(type) {
+    const out = {};
+    RESOURCE_TYPES[type].fields.forEach(f => out[f.key] = f.default);
+    return out;
+  }
+
+  let state = {
+    nodes: [],
+    edges: [],
+    firewallRules: [],
+    iamBindings: [],
+    selectedNodeId: null,
+    activeTab: "properties",
+    connectMode: false,
+    connectFrom: null
+  };
+
+  const INTERNET = { id: "internet", x: 50, y: 60 };
+
+  function nextPosition() {
+    const n = state.nodes.length;
+    const col = n % 4, row = Math.floor(n / 4);
+    return { x: 260 + col * 190, y: 90 + row * 150 };
+  }
+
+  function addNode(type, overrides = {}) {
+    const pos = nextPosition();
+    const node = {
+      id: uid(),
+      type,
+      name: overrides.name || RESOURCE_TYPES[type].label + " " + (state.nodes.filter(n => n.type === type).length + 1),
+      x: overrides.x ?? pos.x,
+      y: overrides.y ?? pos.y,
+      props: Object.assign(defaultProps(type), overrides.props || {})
+    };
+    state.nodes.push(node);
+    save();
+    scanAndRender();
+    return node;
+  }
+
+  function removeNode(id) {
+    state.nodes = state.nodes.filter(n => n.id !== id);
+    state.edges = state.edges.filter(e => e.from !== id && e.to !== id);
+    if (state.selectedNodeId === id) state.selectedNodeId = null;
+    save();
+    scanAndRender();
+  }
+
+  function loadSample() {
+    state.nodes = [];
+    state.edges = [];
+    state.firewallRules = [];
+    state.iamBindings = [];
+    state.selectedNodeId = null;
+
+    const lb = addNode("lb", { name: "web-lb", x: 260, y: 90, props: { cloudArmor: false, sslPolicy: "Legacy (TLS 1.0, weak ciphers)" } });
+    const vm = addNode("vm", { name: "web-vm-1", x: 260, y: 250, props: { publicIp: true, osLogin: false, saRole: "roles/editor (broad)" } });
+    const gke = addNode("gke", { name: "app-cluster", x: 450, y: 250, props: { private: false, networkPolicy: false, masterAuthRestricted: false, workloadIdentity: false } });
+    const sql = addNode("sql", { name: "app-db", x: 355, y: 410, props: { publicIp: true, sslRequired: false, openAuthNetworks: true, backups: true } });
+    const bucket = addNode("bucket", { name: "user-uploads", x: 650, y: 410, props: { publicAccess: true, uniformAccess: false, cmek: false, versioning: true } });
+    const fn = addNode("function", { name: "image-resizer", x: 650, y: 90, props: { allowUnauthenticated: true, vpcConnector: false } });
+
+    state.edges = [
+      { id: uid(), from: "internet", to: lb.id },
+      { id: uid(), from: "internet", to: fn.id },
+      { id: uid(), from: lb.id, to: vm.id },
+      { id: uid(), from: lb.id, to: gke.id },
+      { id: uid(), from: vm.id, to: sql.id },
+      { id: uid(), from: gke.id, to: sql.id },
+      { id: uid(), from: fn.id, to: bucket.id }
+    ];
+
+    state.firewallRules = [
+      { id: uid(), name: "allow-ssh-all", direction: "Ingress", sourceRanges: "0.0.0.0/0", ports: "22", protocol: "tcp", action: "Allow" },
+      { id: uid(), name: "allow-http-https", direction: "Ingress", sourceRanges: "0.0.0.0/0", ports: "80,443", protocol: "tcp", action: "Allow" }
+    ];
+
+    state.iamBindings = [
+      { id: uid(), member: "alice@example.com", role: "roles/owner", scope: "Project", conditionSet: false },
+      { id: uid(), member: "allUsers", role: "roles/storage.objectViewer", scope: "user-uploads bucket", conditionSet: false }
+    ];
+
+    state.activeTab = "findings";
+    save();
+    scanAndRender();
+  }
+
+  function clearAll() {
+    state.nodes = []; state.edges = []; state.firewallRules = []; state.iamBindings = [];
+    state.selectedNodeId = null;
+    save();
+    scanAndRender();
+  }
+
+  function save() {
+    try { localStorage.setItem("gcpArchSecState", JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem("gcpArchSecState");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        parsed.connectMode = false; parsed.connectFrom = null;
+        state = Object.assign(state, parsed);
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function mk(severity, title, description, remediation, nodeId) {
+    return { id: uid(), severity, title, description, remediation, nodeId };
+  }
+
+  function runSecurityScan() {
+    const findings = [];
+
+    state.nodes.forEach(n => {
+      const p = n.props;
+      if (n.type === "vm") {
+        if (p.publicIp) findings.push(mk("Medium", "VM has external IP", `"${n.name}" is directly reachable from the public internet.`, "Remove the external IP; access via IAP, a VPN, or a bastion host instead.", n.id));
+        if (!p.osLogin) findings.push(mk("Medium", "OS Login disabled", `"${n.name}" relies on manually managed SSH keys instead of IAM-governed access.`, "Enable OS Login for centralized, auditable SSH access.", n.id));
+        if (p.saRole !== "custom minimal role") findings.push(mk("High", "Overly broad service account role", `"${n.name}"'s attached service account has ${p.saRole}.`, "Replace with a custom role scoped to only the permissions the VM actually needs.", n.id));
+      }
+      if (n.type === "gke") {
+        if (!p.private) findings.push(mk("High", "GKE cluster is not private", `"${n.name}" nodes are provisioned with public IPs.`, "Recreate as a private cluster (private nodes, and a private endpoint if possible).", n.id));
+        if (!p.networkPolicy) findings.push(mk("Medium", "Network policy disabled", `"${n.name}" allows unrestricted pod-to-pod traffic.`, "Enable Kubernetes Network Policy (or Dataplane V2) to restrict east-west traffic.", n.id));
+        if (!p.masterAuthRestricted) findings.push(mk("Medium", "Control plane open to any IP", `"${n.name}"'s master authorized networks are not restricted.`, "Restrict authorized networks to known admin CIDR ranges.", n.id));
+        if (!p.workloadIdentity) findings.push(mk("Low", "Workload Identity disabled", `"${n.name}" pods likely inherit the node's service account credentials.`, "Enable Workload Identity so pods assume scoped, dedicated identities.", n.id));
+      }
+      if (n.type === "bucket") {
+        if (p.publicAccess) findings.push(mk("High", "Publicly accessible bucket", `"${n.name}" grants access to allUsers or allAuthenticatedUsers.`, "Remove public IAM bindings; use signed URLs or authenticated access instead.", n.id));
+        if (!p.uniformAccess) findings.push(mk("Low", "Legacy ACLs in use", `"${n.name}" does not use uniform bucket-level access.`, "Enable uniform bucket-level access to simplify and tighten permission management.", n.id));
+        if (!p.cmek) findings.push(mk("Low", "Using Google-managed encryption keys", `"${n.name}" does not use customer-managed encryption keys.`, "Consider CMEK if compliance requires customer control over key rotation/revocation.", n.id));
+      }
+      if (n.type === "sql") {
+        if (p.publicIp) findings.push(mk("High", "Cloud SQL public IP enabled", `"${n.name}" is reachable from the internet.`, "Disable the public IP; use private IP via VPC peering or the Cloud SQL Auth Proxy.", n.id));
+        if (!p.sslRequired) findings.push(mk("High", "SSL/TLS not enforced", `"${n.name}" accepts unencrypted client connections.`, "Require SSL/TLS for all connections to this instance.", n.id));
+        if (p.openAuthNetworks) findings.push(mk("High", "Authorized networks include 0.0.0.0/0", `"${n.name}" allows connections from any IP address.`, "Restrict authorized networks to specific, known CIDR ranges.", n.id));
+        if (!p.backups) findings.push(mk("Medium", "Automated backups disabled", `"${n.name}" has no automated backups configured.`, "Enable automated daily backups and point-in-time recovery.", n.id));
+      }
+      if (n.type === "lb") {
+        if (!p.cloudArmor) findings.push(mk("Low", "No WAF protection", `"${n.name}" has no Cloud Armor security policy attached.`, "Attach a Cloud Armor policy for L7 DDoS and WAF protection.", n.id));
+        if (p.sslPolicy === "Legacy (TLS 1.0, weak ciphers)") findings.push(mk("Medium", "Weak SSL policy", `"${n.name}" allows outdated TLS versions and weak ciphers.`, "Switch to a Modern SSL policy (TLS 1.2+).", n.id));
+      }
+      if (n.type === "function") {
+        if (p.allowUnauthenticated) findings.push(mk("Medium", "Unauthenticated invocations allowed", `"${n.name}" can be invoked by anyone without authentication.`, "Require IAM invoker permission unless the function is intentionally public.", n.id));
+      }
+    });
+
+    state.firewallRules.forEach(r => {
+      const sources = r.sourceRanges.split(",").map(s => s.trim());
+      const openSource = sources.includes("0.0.0.0/0");
+      const portsList = r.ports.toLowerCase();
+      if (r.direction === "Ingress" && r.action === "Allow" && openSource) {
+        if (portsList.includes("22") || portsList.includes("3389")) {
+          findings.push(mk("High", "Admin port open to the internet", `Firewall rule "${r.name}" allows ports ${r.ports} from 0.0.0.0/0.`, "Restrict the source range to known IPs/VPN, or use Identity-Aware Proxy for SSH/RDP."));
+        } else if (portsList === "all" || portsList.includes("0-65535")) {
+          findings.push(mk("High", "All ports open to the internet", `Firewall rule "${r.name}" allows all ports from 0.0.0.0/0.`, "Scope the rule down to only the specific ports required."));
+        } else {
+          findings.push(mk("Low", "Broad ingress source range", `Firewall rule "${r.name}" allows ports ${r.ports} from 0.0.0.0/0.`, "Confirm this is intentional for a public-facing service; otherwise narrow the source range."));
+        }
+      }
+    });
+
+    state.iamBindings.forEach(b => {
+      if (b.role === "roles/owner") findings.push(mk("High", "Primitive Owner role granted", `${b.member} has roles/owner at ${b.scope} scope.`, "Replace with least-privilege predefined or custom roles."));
+      else if (b.role === "roles/editor") findings.push(mk("High", "Primitive Editor role granted", `${b.member} has roles/editor at ${b.scope} scope.`, "Replace with least-privilege roles scoped to required services."));
+      if (b.member === "allUsers" || b.member === "allAuthenticatedUsers") findings.push(mk("High", "Public IAM principal granted access", `${b.member} is granted ${b.role}.`, "Remove public principals; grant access to specific identities or groups instead."));
+      if (!b.conditionSet && (b.role === "roles/owner" || b.role === "roles/editor")) findings.push(mk("Low", "No IAM condition applied", `Binding for ${b.member} has no condition (e.g. time-bound or resource-restricted).`, "Add an IAM condition to scope broad grants where possible."));
+    });
+
+    findings.sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+    return findings;
+  }
+
+  let currentFindings = [];
+
+  function nodeFindingSummary(nodeId) {
+    const fs = currentFindings.filter(f => f.nodeId === nodeId);
+    if (!fs.length) return null;
+    const bySev = { High: 0, Medium: 0, Low: 0 };
+    fs.forEach(f => bySev[f.severity]++);
+    const top = bySev.High ? "High" : bySev.Medium ? "Medium" : "Low";
+    return { top, count: fs.length };
+  }
+
+  const svg = document.getElementById("diagram");
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs = {}) {
+    const e = document.createElementNS(SVGNS, tag);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    return e;
+  }
+
+  function nodeCenter(n) {
+    if (n.id === "internet") return { x: INTERNET.x + 55, y: INTERNET.y + 25 };
+    return { x: n.x + 65, y: n.y + 32 };
+  }
+
+  function renderDiagram() {
+    svg.innerHTML = "";
+    const defs = el("defs");
+    const marker = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: "8", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+    marker.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: "#45566f" }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    // edges
+    const allNodesById = { internet: INTERNET };
+    state.nodes.forEach(n => allNodesById[n.id] = n);
+    state.edges.forEach(e => {
+      const from = allNodesById[e.from], to = allNodesById[e.to];
+      if (!from || !to) return;
+      const c1 = nodeCenter(from), c2 = nodeCenter(to);
+      const line = el("line", { class: "edge-line", x1: c1.x, y1: c1.y, x2: c2.x, y2: c2.y, "marker-end": "url(#arrow)", "data-edge": e.id });
+      svg.appendChild(line);
+    });
+
+    // internet node
+    const ig = el("g", { class: "internet-node", transform: `translate(${INTERNET.x},${INTERNET.y})` });
+    ig.appendChild(el("rect", { width: 110, height: 50, rx: 10 }));
+    const itext = el("text", { class: "node-label", x: 55, y: 30, "text-anchor": "middle" });
+    itext.textContent = "🌐 Internet";
+    ig.appendChild(itext);
+    ig.addEventListener("click", (ev) => { ev.stopPropagation(); onNodeClick("internet"); });
+    svg.appendChild(ig);
+
+    // resource nodes
+    state.nodes.forEach(n => {
+      const def = RESOURCE_TYPES[n.type];
+      const g = el("g", { class: "node-box", transform: `translate(${n.x},${n.y})`, "data-id": n.id });
+      const rect = el("rect", { class: "node-rect" + (state.selectedNodeId === n.id ? " selected" : ""), width: 130, height: 64, stroke: def.color });
+      g.appendChild(rect);
+
+      const badge = el("circle", { class: "node-badge", cx: 16, cy: 16, r: 13, fill: def.color, stroke: def.color });
+      g.appendChild(badge);
+      const abbr = el("text", { x: 16, y: 20, "text-anchor": "middle", fill: "#fff", "font-size": "9.5", "font-weight": "800" });
+      abbr.textContent = def.abbr;
+      g.appendChild(abbr);
+
+      const label = el("text", { class: "node-label", x: 38, y: 20 });
+      label.textContent = n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name;
+      g.appendChild(label);
+
+      const sub = el("text", { class: "node-sublabel", x: 38, y: 34 });
+      sub.textContent = def.label;
+      g.appendChild(sub);
+
+      const summary = nodeFindingSummary(n.id);
+      if (summary) {
+        const dot = el("circle", { class: "sev-dot", cx: 118, cy: 12, r: 10, fill: SEV_COLOR[summary.top].replace("var(--high)", "#ea4335").replace("var(--medium)", "#fbbc05").replace("var(--low)", "#5b8def") });
+        // direct color fallback
+        dot.setAttribute("fill", summary.top === "High" ? "#ea4335" : summary.top === "Medium" ? "#fbbc05" : "#5b8def");
+        g.appendChild(dot);
+        const cnt = el("text", { class: "sev-count", x: 118, y: 15 });
+        cnt.textContent = summary.count;
+        g.appendChild(cnt);
+      }
+
+      g.addEventListener("click", (ev) => { ev.stopPropagation(); onNodeClick(n.id); });
+      g.addEventListener("pointerdown", (ev) => startDrag(ev, n));
+      svg.appendChild(g);
+    });
+  }
+
+  let dragState = null;
+  function startDrag(ev, node) {
+    if (state.connectMode) return;
+    ev.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    dragState = { node, offsetX: ev.clientX - rect.left - node.x, offsetY: ev.clientY - rect.top - node.y };
+    window.addEventListener("pointermove", onDrag);
+    window.addEventListener("pointerup", endDrag);
+  }
+  function onDrag(ev) {
+    if (!dragState) return;
+    const rect = svg.getBoundingClientRect();
+    dragState.node.x = Math.max(0, ev.clientX - rect.left - dragState.offsetX);
+    dragState.node.y = Math.max(0, ev.clientY - rect.top - dragState.offsetY);
+    renderDiagram();
+  }
+  function endDrag() {
+    window.removeEventListener("pointermove", onDrag);
+    window.removeEventListener("pointerup", endDrag);
+    if (dragState) { save(); }
+    dragState = null;
+  }
+
+  function onNodeClick(id) {
+    if (state.connectMode) {
+      if (!state.connectFrom) {
+        state.connectFrom = id;
+      } else if (state.connectFrom !== id) {
+        state.edges.push({ id: uid(), from: state.connectFrom, to: id });
+        state.connectFrom = null;
+        state.connectMode = false;
+        document.getElementById("connectHint").style.display = "none";
+        document.getElementById("btnConnect").classList.remove("active");
+        save();
+      }
+      renderDiagram();
+      return;
+    }
+    state.selectedNodeId = id === "internet" ? null : id;
+    state.activeTab = "properties";
+    renderAll();
+  }
+
+  function flashNode(id) {
+    renderDiagram();
+    const g = svg.querySelector(`[data-id="${id}"]`);
+    if (g) { g.classList.add("flash"); setTimeout(() => g.classList.remove("flash"), 2000); }
+  }
+
+  // ---------- Inspector ----------
+  const tabContent = document.getElementById("tabContent");
+
+  function fieldHtml(resourceId, field, value) {
+    if (field.type === "bool") {
+      return `<div class="field bool">
+        <span>${field.label}</span>
+        <label class="toggle"><input type="checkbox" data-key="${field.key}" ${value ? "checked" : ""}><span class="slider"></span></label>
+      </div>`;
+    }
+    if (field.type === "select") {
+      return `<div class="field">
+        <label>${field.label}</label>
+        <select data-key="${field.key}">
+          ${field.options.map(o => `<option value="${o}" ${o === value ? "selected" : ""}>${o}</option>`).join("")}
+        </select>
+      </div>`;
+    }
+    return `<div class="field"><label>${field.label}</label><input type="text" data-key="${field.key}" value="${value ?? ""}"></div>`;
+  }
+
+  function renderProperties() {
+    const node = state.nodes.find(n => n.id === state.selectedNodeId);
+    if (!node) {
+      tabContent.innerHTML = `<div class="empty-state">Select a node in the diagram to view and edit its security-relevant properties.<br><br>Or click a resource type on the left to add one.</div>`;
+      return;
+    }
+    const def = RESOURCE_TYPES[node.type];
+    let html = `<div class="section-title">${def.label}</div>
+      <div class="field"><label>Name</label><input type="text" id="nodeName" value="${node.name}"></div>`;
+    def.fields.forEach(f => html += fieldHtml(node.id, f, node.props[f.key]));
+    html += `<button class="danger small" id="deleteNode" style="width:100%;margin-top:6px;">Delete Resource</button>`;
+    tabContent.innerHTML = html;
+
+    document.getElementById("nodeName").addEventListener("input", (e) => { node.name = e.target.value; save(); renderDiagram(); });
+    tabContent.querySelectorAll("[data-key]").forEach(inp => {
+      inp.addEventListener("change", (e) => {
+        const key = e.target.dataset.key;
+        const field = def.fields.find(f => f.key === key);
+        node.props[key] = field.type === "bool" ? e.target.checked : e.target.value;
+        save();
+        scanAndRender();
+      });
+    });
+    document.getElementById("deleteNode").addEventListener("click", () => removeNode(node.id));
+  }
+
+  function renderFirewall() {
+    let html = `<div class="section-title">Firewall Rules <button class="small primary" id="newFw">+ Add</button></div>`;
+    if (!state.firewallRules.length) html += `<div class="empty-state">No firewall rules defined yet.</div>`;
+    state.firewallRules.forEach(r => {
+      html += `<div class="list-item" data-id="${r.id}">
+        <div class="list-item-head"><strong>${r.name}</strong><button class="danger small" data-del-fw="${r.id}">✕</button></div>
+        <div class="field"><label>Name</label><input type="text" data-fw="${r.id}" data-key="name" value="${r.name}"></div>
+        <div class="field"><label>Direction</label><select data-fw="${r.id}" data-key="direction">
+          <option ${r.direction==="Ingress"?"selected":""}>Ingress</option><option ${r.direction==="Egress"?"selected":""}>Egress</option>
+        </select></div>
+        <div class="field"><label>Action</label><select data-fw="${r.id}" data-key="action">
+          <option ${r.action==="Allow"?"selected":""}>Allow</option><option ${r.action==="Deny"?"selected":""}>Deny</option>
+        </select></div>
+        <div class="field"><label>Source ranges</label><input type="text" data-fw="${r.id}" data-key="sourceRanges" value="${r.sourceRanges}" placeholder="e.g. 0.0.0.0/0"></div>
+        <div class="field"><label>Ports</label><input type="text" data-fw="${r.id}" data-key="ports" value="${r.ports}" placeholder="e.g. 22,3389 or all"></div>
+      </div>`;
+    });
+    tabContent.innerHTML = html;
+    document.getElementById("newFw").addEventListener("click", () => {
+      state.firewallRules.push({ id: uid(), name: "new-rule", direction: "Ingress", sourceRanges: "0.0.0.0/0", ports: "80", protocol: "tcp", action: "Allow" });
+      save(); scanAndRender();
+    });
+    tabContent.querySelectorAll("[data-del-fw]").forEach(b => b.addEventListener("click", () => {
+      state.firewallRules = state.firewallRules.filter(r => r.id !== b.dataset.delFw);
+      save(); scanAndRender();
+    }));
+    tabContent.querySelectorAll("[data-fw]").forEach(inp => inp.addEventListener("change", (e) => {
+      const r = state.firewallRules.find(r => r.id === e.target.dataset.fw);
+      r[e.target.dataset.key] = e.target.value;
+      save(); scanAndRender();
+    }));
+  }
+
+  function renderIam() {
+    let html = `<div class="section-title">IAM Bindings <button class="small primary" id="newIam">+ Add</button></div>`;
+    if (!state.iamBindings.length) html += `<div class="empty-state">No IAM bindings defined yet.</div>`;
+    state.iamBindings.forEach(b => {
+      html += `<div class="list-item" data-id="${b.id}">
+        <div class="list-item-head"><strong>${b.member}</strong><button class="danger small" data-del-iam="${b.id}">✕</button></div>
+        <div class="field"><label>Member (email, allUsers, allAuthenticatedUsers)</label><input type="text" data-iam="${b.id}" data-key="member" value="${b.member}"></div>
+        <div class="field"><label>Role</label><select data-iam="${b.id}" data-key="role">
+          ${["roles/owner","roles/editor","roles/viewer","roles/storage.objectViewer","roles/compute.admin","custom minimal role"].map(r=>`<option ${r===b.role?"selected":""}>${r}</option>`).join("")}
+        </select></div>
+        <div class="field"><label>Scope</label><input type="text" data-iam="${b.id}" data-key="scope" value="${b.scope}" placeholder="Project or resource name"></div>
+        <div class="field bool"><span>IAM condition set</span><label class="toggle"><input type="checkbox" data-iam="${b.id}" data-key="conditionSet" ${b.conditionSet?"checked":""}><span class="slider"></span></label></div>
+      </div>`;
+    });
+    tabContent.innerHTML = html;
+    document.getElementById("newIam").addEventListener("click", () => {
+      state.iamBindings.push({ id: uid(), member: "user@example.com", role: "roles/viewer", scope: "Project", conditionSet: false });
+      save(); scanAndRender();
+    });
+    tabContent.querySelectorAll("[data-del-iam]").forEach(b => b.addEventListener("click", () => {
+      state.iamBindings = state.iamBindings.filter(x => x.id !== b.dataset.delIam);
+      save(); scanAndRender();
+    }));
+    tabContent.querySelectorAll("[data-iam]").forEach(inp => inp.addEventListener("change", (e) => {
+      const b = state.iamBindings.find(b => b.id === e.target.dataset.iam);
+      const key = e.target.dataset.key;
+      b[key] = key === "conditionSet" ? e.target.checked : e.target.value;
+      save(); scanAndRender();
+    }));
+  }
+
+  function renderFindings() {
+    const counts = { High: 0, Medium: 0, Low: 0 };
+    currentFindings.forEach(f => counts[f.severity]++);
+    let html = `<div class="summary-bar">
+      <div class="summary-chip High"><span class="n">${counts.High}</span><span class="l">High</span></div>
+      <div class="summary-chip Medium"><span class="n">${counts.Medium}</span><span class="l">Medium</span></div>
+      <div class="summary-chip Low"><span class="n">${counts.Low}</span><span class="l">Low</span></div>
+    </div>`;
+    if (!currentFindings.length) {
+      html += `<div class="empty-state">No findings. Add resources, firewall rules, or IAM bindings — or click "Load Sample" to see the scanner in action.</div>`;
+    } else {
+      currentFindings.forEach(f => {
+        const node = state.nodes.find(n => n.id === f.nodeId);
+        html += `<div class="finding ${f.severity}">
+          <div class="finding-top"><span class="sev-pill ${f.severity}">${f.severity}</span><span class="finding-title">${f.title}</span></div>
+          <div class="finding-desc">${f.description}</div>
+          ${node ? `<span class="finding-link" data-goto="${node.id}">→ ${node.name}</span>` : ""}
+          <div class="finding-remediation"><b>Fix:</b> ${f.remediation}</div>
+        </div>`;
+      });
+    }
+    tabContent.innerHTML = html;
+    tabContent.querySelectorAll("[data-goto]").forEach(l => l.addEventListener("click", () => {
+      state.selectedNodeId = l.dataset.goto;
+      state.activeTab = "properties";
+      renderAll();
+      flashNode(l.dataset.goto);
+    }));
+  }
+
+  function renderTabs() {
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === state.activeTab));
+    document.getElementById("findingsCountTab").textContent = currentFindings.length ? currentFindings.length : "";
+    if (state.activeTab === "properties") renderProperties();
+    else if (state.activeTab === "firewall") renderFirewall();
+    else if (state.activeTab === "iam") renderIam();
+    else if (state.activeTab === "findings") renderFindings();
+  }
+
+  function renderAll() {
+    renderDiagram();
+    renderTabs();
+  }
+
+  function scanAndRender() {
+    currentFindings = runSecurityScan();
+    renderAll();
+  }
+
+  // ---------- Event wiring ----------
+  document.querySelectorAll(".palette-btn[data-type]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const node = addNode(btn.dataset.type);
+      state.selectedNodeId = node.id;
+      state.activeTab = "properties";
+      renderAll();
+    });
+  });
+
+  document.getElementById("addFirewall").addEventListener("click", () => {
+    state.firewallRules.push({ id: uid(), name: "new-rule", direction: "Ingress", sourceRanges: "0.0.0.0/0", ports: "80", protocol: "tcp", action: "Allow" });
+    state.activeTab = "firewall";
+    save(); scanAndRender();
+  });
+  document.getElementById("addIam").addEventListener("click", () => {
+    state.iamBindings.push({ id: uid(), member: "user@example.com", role: "roles/viewer", scope: "Project", conditionSet: false });
+    state.activeTab = "iam";
+    save(); scanAndRender();
+  });
+
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+    state.activeTab = t.dataset.tab;
+    renderTabs();
+  }));
+
+  document.getElementById("btnSample").addEventListener("click", loadSample);
+  document.getElementById("btnClear").addEventListener("click", () => {
+    if (confirm("Clear the entire diagram and all rules/bindings?")) clearAll();
+  });
+  document.getElementById("btnExport").addEventListener("click", () => {
+    const clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", SVGNS);
+    clone.setAttribute("style", "background:#0b0f14");
+    const blob = new Blob([clone.outerHTML], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "gcp-architecture.svg";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("btnConnect").addEventListener("click", (e) => {
+    state.connectMode = !state.connectMode;
+    state.connectFrom = null;
+    e.target.classList.toggle("active", state.connectMode);
+    document.getElementById("connectHint").style.display = state.connectMode ? "block" : "none";
+  });
+
+  svg.addEventListener("click", () => {
+    if (!state.connectMode) {
+      state.selectedNodeId = null;
+      if (state.activeTab === "properties") renderTabs();
+      renderDiagram();
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      state.connectMode = false; state.connectFrom = null;
+      document.getElementById("connectHint").style.display = "none";
+      document.getElementById("btnConnect").classList.remove("active");
+      renderDiagram();
+    }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "SELECT") return;
+      if (state.selectedNodeId) removeNode(state.selectedNodeId);
+    }
+  });
+
+  // ---------- Init ----------
+  if (!load() || state.nodes.length === 0) {
+    loadSample();
+  } else {
+    scanAndRender();
+  }
+})();
+</script>
+</body>
+</html>
